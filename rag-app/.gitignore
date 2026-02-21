@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.env
+faiss_db/
+uploads/
+node_modules/
+dist/
+.DS_Store
