@@ -7,7 +7,7 @@ langchain
 langchain-groq
 langchain-text-splitters
 langchain-community
+langchain-huggingface
 faiss-cpu
+sentence-transformers
 groq
-openai
-langchain-openai

@@ -40,6 +40,7 @@ export default function App() {
       const res = await axios.post(`${API}/upload`, formData);
       setUploadStatus(res.data.message ?? "Uploaded.");
       setHasDocument(true);
+      setMessages([]);
     } catch (err) {
       const detail = err.response?.data?.detail ?? err.message ?? "Upload failed. Check backend.";
       const msg = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.join(" ") : "Upload failed.";
