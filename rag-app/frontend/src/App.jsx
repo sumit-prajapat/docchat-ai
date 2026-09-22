@@ -179,7 +179,19 @@ export default function App() {
                 )
               );
             } else if (data.type === "error") {
-              throw new Error(data.error);
+              setMessages((prev) =>
+                prev.map((msg, idx) =>
+                  idx === aiIndex
+                    ? {
+                        ...msg,
+                        text: `❌ ${data.error}`,
+                        isStreaming: false,
+                        isError: true,
+                      }
+                    : msg
+                )
+              );
+              break;
             } else if (data.type === "done") {
               setMessages((prev) =>
                 prev.map((msg, idx) =>

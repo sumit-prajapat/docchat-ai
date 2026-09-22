@@ -137,6 +137,13 @@ def ingest_document(file_path: str) -> dict:
     }
 
 
+AVAILABLE_GROQ_MODELS = [
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b",
+    "llama-3.1-8b-instant",
+]
+
+
 def _contextualize_query(question: str, history: list[dict], groq_api_key: str) -> str:
     """Rephrase user question using chat history if available to create a standalone search query."""
     if not history:
@@ -145,8 +152,10 @@ def _contextualize_query(question: str, history: list[dict], groq_api_key: str) 
     recent_turns = history[-4:]
     history_text = "\n".join([f"{h.get('role', 'user')}: {h.get('content', '')}" for h in recent_turns])
 
-    llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, groq_api_key=groq_api_key)
-    rephrase_prompt = ChatPromptTemplate.from_template("""
+    for model_name in AVAILABLE_GROQ_MODELS:
+        try:
+            llm = ChatGroq(model=model_name, temperature=0, groq_api_key=groq_api_key)
+            rephrase_prompt = ChatPromptTemplate.from_template("""
 Given the recent chat history and a follow-up question, rephrase the follow-up question into a standalone question that can be understood without the chat history.
 Do NOT answer the question. Only output the rephrased standalone query. If it is already standalone, return it as is.
 
@@ -157,12 +166,12 @@ Follow-up Question: {question}
 
 Standalone Query:
 """)
-    chain = rephrase_prompt | llm | StrOutputParser()
-    try:
-        standalone = chain.invoke({"history_text": history_text, "question": question}).strip()
-        return standalone if standalone else question
-    except Exception:
-        return question
+            chain = rephrase_prompt | llm | StrOutputParser()
+            standalone = chain.invoke({"history_text": history_text, "question": question}).strip()
+            return standalone if standalone else question
+        except Exception:
+            continue
+    return question
 
 
 def _format_chat_history(history: list[dict]):
@@ -234,17 +243,28 @@ async def stream_query_document(question: str, history: list[dict] = []) -> Asyn
         chat_messages.extend(_format_chat_history(history))
         chat_messages.append(HumanMessage(content=question))
 
-        llm = ChatGroq(
-            model="llama-3.1-8b-instant",
-            temperature=0.1,
-            streaming=True,
-            groq_api_key=groq_api_key
-        )
+        # 5. Stream Tokens with multi-model fallback
+        stream_success = False
+        for model_name in AVAILABLE_GROQ_MODELS:
+            try:
+                llm = ChatGroq(
+                    model=model_name,
+                    temperature=0.1,
+                    streaming=True,
+                    groq_api_key=groq_api_key,
+                )
+                async for chunk in llm.astream(chat_messages):
+                    if chunk.content:
+                        yield f"data: {json.dumps({'type': 'token', 'token': chunk.content})}\n\n"
+                stream_success = True
+                break
+            except Exception as stream_err:
+                print(f"Model {model_name} streaming error: {stream_err}")
+                continue
 
-        # 5. Stream Tokens
-        async for chunk in llm.astream(chat_messages):
-            if chunk.content:
-                yield f"data: {json.dumps({'type': 'token', 'token': chunk.content})}\n\n"
+        if not stream_success:
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Failed to generate answer. Please verify Groq API key.'})}\n\n"
+            return
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
@@ -297,6 +317,13 @@ def query_document(question: str, history: list[dict] = []) -> tuple[str, list[d
     chat_messages.extend(_format_chat_history(history))
     chat_messages.append(HumanMessage(content=question))
 
-    llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0.1, groq_api_key=groq_api_key)
-    response = llm.invoke(chat_messages)
-    return response.content, sources
+    for model_name in AVAILABLE_GROQ_MODELS:
+        try:
+            llm = ChatGroq(model=model_name, temperature=0.1, groq_api_key=groq_api_key)
+            response = llm.invoke(chat_messages)
+            return response.content, sources
+        except Exception:
+            continue
+
+    raise RuntimeError("Failed to generate answer with available Groq models.")
+
