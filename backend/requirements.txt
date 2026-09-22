@@ -11,3 +11,4 @@ langchain-huggingface
 faiss-cpu
 sentence-transformers
 groq
+rank_bm25

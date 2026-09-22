@@ -1,9 +1,10 @@
 import os
+import mimetypes
 import shutil
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from rag import (
     ingest_document,
@@ -46,7 +47,7 @@ def health():
 
 @app.get("/status")
 def get_status():
-    """Return whether documents are loaded and list active documents."""
+    """Return whether documents are loaded and list active documents with insights."""
     docs = get_documents()
     return {
         "has_document": len(docs) > 0 or has_index(),
@@ -57,8 +58,38 @@ def get_status():
 
 @app.get("/documents")
 def list_documents():
-    """List all currently indexed documents."""
+    """List all currently indexed documents with their summaries and insights."""
     return {"documents": get_documents()}
+
+
+@app.get("/documents/{filename}/insights")
+def get_document_insights(filename: str):
+    """Retrieve the executive summary, key takeaways, and suggested questions for a specific document."""
+    docs = get_documents()
+    for doc in docs:
+        if doc.get("filename") == filename:
+            return doc.get("insights", {})
+    raise HTTPException(status_code=404, detail=f"Document '{filename}' not found.")
+
+
+@app.get("/files/{filename}")
+def serve_file(filename: str):
+    """Serve uploaded document inline for the side-by-side browser viewer."""
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on server.")
+
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+
+    return FileResponse(
+        file_path,
+        media_type=mime_type,
+        content_disposition_type="inline",
+        filename=filename,
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 
 @app.delete("/documents")
@@ -92,6 +123,7 @@ async def upload_document(file: UploadFile = File(...)):
         return {
             "message": f"✅ Ingested {result['chunks']} chunks from '{result['filename']}'",
             "details": result,
+            "insights": result.get("insights", {})
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -131,7 +163,7 @@ async def ask_question(body: QuestionRequest):
 
 @app.post("/ask/stream")
 async def ask_question_stream(body: QuestionRequest):
-    """Server-Sent Events (SSE) streaming endpoint for real-time word-by-word answering."""
+    """Server-Sent Events (SSE) streaming endpoint using Hybrid Search (BM25 + FAISS)."""
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
