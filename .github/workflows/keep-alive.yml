@@ -1,0 +1,22 @@
+name: Keep Backend Alive
+
+on:
+  schedule:
+    # Runs every 14 minutes to prevent Hugging Face Spaces from sleeping
+    - cron: '*/14 * * * *'
+  workflow_dispatch: # Allows manual trigger anytime from GitHub Actions tab
+
+jobs:
+  ping-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping DocChat AI Backend
+        run: |
+          echo "Pinging Hugging Face Space backend..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://mk1311-docchat-ai-backend.hf.space/status)
+          echo "Response HTTP Status: $HTTP_CODE"
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Backend is awake and healthy!"
+          else
+            echo "⚠️ Backend returned status $HTTP_CODE (may be waking up)"
+          fi

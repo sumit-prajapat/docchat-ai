@@ -35,6 +35,7 @@ export default function App() {
   const [hasDocument, setHasDocument] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [statusLoading, setStatusLoading] = useState(true);
+  const [isWakingUp, setIsWakingUp] = useState(false);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +47,10 @@ export default function App() {
 
   const fetchStatus = async () => {
     setStatusLoading(true);
+    const wakeTimer = setTimeout(() => {
+      setIsWakingUp(true);
+    }, 2500);
+
     try {
       const res = await axios.get(`${API}/status`);
       setHasDocument(Boolean(res.data.has_document));
@@ -54,6 +59,8 @@ export default function App() {
       setHasDocument(false);
       setDocuments([]);
     } finally {
+      clearTimeout(wakeTimer);
+      setIsWakingUp(false);
       setStatusLoading(false);
     }
   };
@@ -308,9 +315,23 @@ export default function App() {
               </button>
             )}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700/80 text-xs text-slate-300">
-              <span className={`w-2 h-2 rounded-full ${hasDocument ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isWakingUp
+                    ? "bg-amber-400 animate-ping"
+                    : hasDocument
+                    ? "bg-emerald-400 animate-pulse"
+                    : "bg-slate-500"
+                }`}
+              />
               <span className="font-medium text-[11px]">
-                {statusLoading ? "Checking..." : hasDocument ? `${documents.length || 1} Doc(s) Ready` : "No Document"}
+                {isWakingUp
+                  ? "Waking up cloud backend..."
+                  : statusLoading
+                  ? "Connecting..."
+                  : hasDocument
+                  ? `${documents.length || 1} Doc(s) Ready`
+                  : "No Document"}
               </span>
             </div>
           </div>
@@ -319,6 +340,13 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
+        {isWakingUp && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center justify-center gap-2.5 animate-fade-up shadow-sm">
+            <RefreshCw className="w-4 h-4 animate-spin text-amber-400 flex-shrink-0" />
+            <span>Connecting to free cloud backend (waking container from standby, takes ~20-30s)...</span>
+          </div>
+        )}
+
         {/* Upload & Document Management Section */}
         <section className="glass rounded-2xl p-5 sm:p-6 shadow-xl border border-slate-700/50 animate-fade-up">
           <div className="flex items-center justify-between mb-3">
