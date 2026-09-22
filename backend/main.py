@@ -38,6 +38,7 @@ class ChatMessage(BaseModel):
 class QuestionRequest(BaseModel):
     question: str
     history: Optional[List[ChatMessage]] = []
+    filter_doc: Optional[str] = None
 
 
 @app.get("/")
@@ -140,8 +141,8 @@ async def ask_question(body: QuestionRequest):
     history_dicts = [{"role": m.role, "content": m.content} for m in body.history] if body.history else []
 
     try:
-        answer, sources = query_document(body.question, history_dicts)
-        return {"answer": answer, "sources": sources}
+        answer, sources, confidence = query_document(body.question, history_dicts, filter_doc=body.filter_doc)
+        return {"answer": answer, "sources": sources, "confidence": confidence}
     except FileNotFoundError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
@@ -170,7 +171,7 @@ async def ask_question_stream(body: QuestionRequest):
     history_dicts = [{"role": m.role, "content": m.content} for m in body.history] if body.history else []
 
     return StreamingResponse(
-        stream_query_document(body.question, history_dicts),
+        stream_query_document(body.question, history_dicts, filter_doc=body.filter_doc),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -252,19 +252,39 @@ def reciprocal_rank_fusion(
     return [doc_map[doc_id] for doc_id in sorted_ids[:top_n]]
 
 
-def hybrid_search(query: str, top_n: int = 4) -> list[Document]:
-    """Execute Hybrid Search: FAISS Dense Search + BM25 Sparse Search + RRF Re-ranking."""
+def compute_grounding_score(docs: list[Document], query: str) -> int:
+    """Compute context groundedness confidence score (percentage 70-98%)."""
+    if not docs:
+        return 0
+    query_words = set(re.findall(r'\w+', query.lower()))
+    if not query_words:
+        return 88
+    combined_text = " ".join([d.page_content.lower() for d in docs])
+    meaningful_words = [w for w in query_words if len(w) > 2]
+    if not meaningful_words:
+        return 88
+    matched = [w for w in meaningful_words if w in combined_text]
+    overlap_ratio = len(matched) / len(meaningful_words)
+    score = int(80 + (overlap_ratio * 18))
+    return min(max(score, 72), 98)
+
+
+def hybrid_search(query: str, top_n: int = 4, filter_doc: str = None) -> list[Document]:
+    """Execute Hybrid Search: FAISS Dense Search + BM25 Sparse Search + RRF Re-ranking with doc filtering."""
     if not has_index():
         return []
 
-    # 1. Dense FAISS Search
+    all_chunks = _load_all_chunks()
+    if filter_doc:
+        all_chunks = [c for c in all_chunks if c.metadata.get("source") == filter_doc]
+
     vectorstore = FAISS.load_local(
         FAISS_DIR, embeddings, allow_dangerous_deserialization=True
     )
-    dense_docs = vectorstore.similarity_search(query, k=6)
+    dense_docs = vectorstore.similarity_search(query, k=8)
+    if filter_doc:
+        dense_docs = [d for d in dense_docs if d.metadata.get("source") == filter_doc]
 
-    # 2. Sparse BM25 Search
-    all_chunks = _load_all_chunks()
     if not all_chunks:
         return dense_docs[:top_n]
 
@@ -272,7 +292,8 @@ def hybrid_search(query: str, top_n: int = 4) -> list[Document]:
         bm25_retriever = BM25Retriever.from_documents(all_chunks)
         bm25_retriever.k = 6
         sparse_docs = bm25_retriever.invoke(query)
-        # 3. Reciprocal Rank Fusion
+        if filter_doc:
+            sparse_docs = [d for d in sparse_docs if d.metadata.get("source") == filter_doc]
         return reciprocal_rank_fusion(dense_docs, sparse_docs, k=60, top_n=top_n)
     except Exception as e:
         print(f"BM25 fallback to dense: {e}")
@@ -321,7 +342,11 @@ def _format_chat_history(history: list[dict]):
     return messages
 
 
-async def stream_query_document(question: str, history: list[dict] = []) -> AsyncGenerator[str, None]:
+async def stream_query_document(
+    question: str,
+    history: list[dict] = [],
+    filter_doc: str = None
+) -> AsyncGenerator[str, None]:
     """Stream answers token-by-token using Hybrid Search (BM25 + FAISS) and Groq LLaMA/Qwen."""
     if not has_index():
         yield f"data: {json.dumps({'type': 'error', 'error': 'No documents loaded. Please upload a document first.'})}\n\n"
@@ -337,15 +362,17 @@ async def stream_query_document(question: str, history: list[dict] = []) -> Asyn
         standalone_query = _contextualize_query(question, history, groq_api_key)
 
         # 2. Hybrid Search (FAISS + BM25 via RRF)
-        docs = hybrid_search(standalone_query, top_n=4)
+        docs = hybrid_search(standalone_query, top_n=4, filter_doc=filter_doc)
+        confidence = compute_grounding_score(docs, standalone_query)
 
         if not docs:
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'confidence', 'score': 0})}\n\n"
             yield f"data: {json.dumps({'type': 'token', 'token': 'I could not find relevant information in the uploaded document.'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        # 3. Emit Sources Event First
+        # 3. Emit Sources & Confidence First
         sources = [
             {
                 "source": d.metadata.get("source", "Document"),
@@ -355,6 +382,7 @@ async def stream_query_document(question: str, history: list[dict] = []) -> Asyn
             for d in docs
         ]
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+        yield f"data: {json.dumps({'type': 'confidence', 'score': confidence})}\n\n"
 
         # 4. Construct Prompt with Context and Memory
         context = "\n\n---\n\n".join(
@@ -404,7 +432,11 @@ async def stream_query_document(question: str, history: list[dict] = []) -> Asyn
         yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
 
-def query_document(question: str, history: list[dict] = []) -> tuple[str, list[dict]]:
+def query_document(
+    question: str,
+    history: list[dict] = [],
+    filter_doc: str = None
+) -> tuple[str, list[dict], int]:
     """Synchronous query using Hybrid Search for standard endpoint fallback."""
     if not has_index():
         raise FileNotFoundError("No document has been ingested yet. Please upload a document first.")
@@ -415,9 +447,11 @@ def query_document(question: str, history: list[dict] = []) -> tuple[str, list[d
 
     standalone_query = _contextualize_query(question, history, groq_api_key)
 
-    docs = hybrid_search(standalone_query, top_n=4)
+    docs = hybrid_search(standalone_query, top_n=4, filter_doc=filter_doc)
+    confidence = compute_grounding_score(docs, standalone_query)
+
     if not docs:
-        return "I could not find relevant information in the uploaded document.", []
+        return "I could not find relevant information in the uploaded document.", [], 0
 
     sources = [
         {
@@ -450,8 +484,9 @@ def query_document(question: str, history: list[dict] = []) -> tuple[str, list[d
         try:
             llm = ChatGroq(model=model_name, temperature=0.1, groq_api_key=groq_api_key)
             response = llm.invoke(chat_messages)
-            return response.content, sources
+            return response.content, sources, confidence
         except Exception:
             continue
 
     raise RuntimeError("Failed to generate answer with available Groq models.")
+

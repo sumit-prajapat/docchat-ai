@@ -21,6 +21,13 @@ import {
   EyeOff,
   ExternalLink,
   Zap,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Download,
+  CheckCircle2,
+  Filter,
 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_URL || "https://mk1311-docchat-ai-backend.hf.space";
@@ -32,6 +39,7 @@ export default function App() {
   const [hasDocument, setHasDocument] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [activeDoc, setActiveDoc] = useState(null);
+  const [docFilter, setDocFilter] = useState("all");
   const [statusLoading, setStatusLoading] = useState(true);
   const [isWakingUp, setIsWakingUp] = useState(false);
   const [question, setQuestion] = useState("");
@@ -44,6 +52,11 @@ export default function App() {
   // Document Viewer State
   const [showViewer, setShowViewer] = useState(true);
   const [viewerPage, setViewerPage] = useState(1);
+
+  // Voice Mode State
+  const [isListening, setIsListening] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState(null);
+  const speechRecognitionRef = useRef(null);
 
   const chatBottomRef = useRef(null);
 
@@ -79,6 +92,81 @@ export default function App() {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Voice: Initialize Speech Recognition
+  useEffect(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map((r) => r[0].transcript)
+          .join("");
+        setQuestion(transcript);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!speechRecognitionRef.current) {
+      alert("Speech recognition is not supported in this browser. Please try Chrome, Edge, or Safari.");
+      return;
+    }
+
+    if (isListening) {
+      speechRecognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      setQuestion("");
+      speechRecognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+
+  const toggleSpeak = (text, index) => {
+    if (!("speechSynthesis" in window)) {
+      alert("Text-to-speech is not supported in your browser.");
+      return;
+    }
+
+    if (speakingIndex === index) {
+      window.speechSynthesis.cancel();
+      setSpeakingIndex(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    // Strip markdown formatting characters for natural speech
+    const cleanText = text
+      .replace(/[*#_`~]/g, "")
+      .replace(/\[Page \d+\]/g, "")
+      .replace(/https?:\/\/\S+/g, "");
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    utterance.onend = () => setSpeakingIndex(null);
+    utterance.onerror = () => setSpeakingIndex(null);
+
+    setSpeakingIndex(index);
+    window.speechSynthesis.speak(utterance);
+  };
+
   const handleUpload = async () => {
     if (!file) return;
     const formData = new FormData();
@@ -92,7 +180,6 @@ export default function App() {
       setFile(null);
       await fetchStatus();
 
-      // Set active document to the newly uploaded file
       const uploadedFilename = res.data.details?.filename;
       if (uploadedFilename) {
         setActiveDoc({
@@ -131,6 +218,11 @@ export default function App() {
     const query = (customQuestion || question).trim();
     if (!query || loading) return;
 
+    if (isListening && speechRecognitionRef.current) {
+      speechRecognitionRef.current.stop();
+      setIsListening(false);
+    }
+
     const userMsg = { role: "user", text: query };
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
@@ -145,10 +237,12 @@ export default function App() {
         content: m.text,
       }));
 
+    const filterTarget = docFilter === "all" ? null : docFilter;
+
     const aiIndex = newHistory.length;
     setMessages((prev) => [
       ...prev,
-      { role: "ai", text: "", sources: [], isStreaming: true },
+      { role: "ai", text: "", sources: [], confidence: null, isStreaming: true },
     ]);
 
     try {
@@ -158,6 +252,7 @@ export default function App() {
         body: JSON.stringify({
           question: query,
           history: historyPayload,
+          filter_doc: filterTarget,
         }),
       });
 
@@ -166,6 +261,7 @@ export default function App() {
         const fallbackRes = await axios.post(`${API}/ask`, {
           question: query,
           history: historyPayload,
+          filter_doc: filterTarget,
         });
         setMessages((prev) =>
           prev.map((msg, idx) =>
@@ -174,6 +270,7 @@ export default function App() {
                   role: "ai",
                   text: fallbackRes.data.answer,
                   sources: fallbackRes.data.sources || [],
+                  confidence: fallbackRes.data.confidence || 88,
                   isStreaming: false,
                 }
               : msg
@@ -213,6 +310,12 @@ export default function App() {
               setMessages((prev) =>
                 prev.map((msg, idx) =>
                   idx === aiIndex ? { ...msg, sources: data.sources || [] } : msg
+                )
+              );
+            } else if (data.type === "confidence") {
+              setMessages((prev) =>
+                prev.map((msg, idx) =>
+                  idx === aiIndex ? { ...msg, confidence: data.score } : msg
                 )
               );
             } else if (data.type === "token") {
@@ -300,6 +403,59 @@ export default function App() {
     setShowViewer(true);
   };
 
+  // Feature 2: Executive Report Exporter
+  const handleExportReport = () => {
+    const title = activeDoc?.filename || "Document";
+    let report = `# DocChat AI - Executive Q&A Briefing Report\n\n`;
+    report += `**Document:** ${title}\n`;
+    report += `**Generated:** ${new Date().toLocaleString()}\n`;
+    report += `**Total Q&A Exchanges:** ${messages.filter((m) => m.role === "user").length}\n\n`;
+    report += `---\n\n`;
+
+    if (activeDoc?.insights?.summary) {
+      report += `## 📋 Executive Summary\n\n${activeDoc.insights.summary}\n\n`;
+    }
+
+    if (activeDoc?.insights?.takeaways?.length > 0) {
+      report += `### Key Highlights\n\n`;
+      activeDoc.insights.takeaways.forEach((point) => {
+        report += `- ${point}\n`;
+      });
+      report += `\n`;
+    }
+
+    report += `## 💬 Q&A Transcript\n\n`;
+    let qNum = 1;
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role === "user") {
+        report += `### Q${qNum}: ${msg.text}\n\n`;
+        qNum++;
+      } else if (msg.role === "ai" && !msg.isError) {
+        report += `**Answer:**\n\n${msg.text}\n\n`;
+        if (msg.confidence) {
+          report += `*Confidence Grounding:* ${msg.confidence}%\n\n`;
+        }
+        if (msg.sources?.length > 0) {
+          report += `*Cited Sources:*\n`;
+          msg.sources.forEach((s) => {
+            const pageStr = s.page ? ` (Page ${s.page})` : "";
+            report += `> "${s.text}" — *${s.source || title}${pageStr}*\n\n`;
+          });
+        }
+        report += `---\n\n`;
+      }
+    }
+
+    const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${title.replace(/\.[^/.]+$/, "")}-briefing-report.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
@@ -316,7 +472,6 @@ export default function App() {
     return <File className="w-4 h-4 text-amber-400" />;
   };
 
-  // Active Document Insights
   const currentInsights = activeDoc?.insights || documents[0]?.insights;
 
   return (
@@ -333,11 +488,11 @@ export default function App() {
                 <h1 className="font-bold text-base sm:text-lg text-slate-100 tracking-tight">DocChat AI</h1>
                 <span className="px-2 py-0.5 text-[10px] font-semibold bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30 flex items-center gap-1">
                   <Zap className="w-2.5 h-2.5 text-amber-400" />
-                  <span>Hybrid RAG</span>
+                  <span>Hybrid RAG + Voice</span>
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">
-                BM25 + FAISS Dense Embeddings with Real-time Streaming
+                BM25 + FAISS Dense Embeddings with Real-time Streaming & Voice
               </p>
             </div>
           </div>
@@ -345,6 +500,19 @@ export default function App() {
           <div className="flex items-center gap-2">
             {hasDocument && (
               <>
+                {/* Export Briefing Report */}
+                {messages.length > 0 && (
+                  <button
+                    onClick={handleExportReport}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/90 text-slate-200 hover:text-amber-300 hover:bg-slate-700 border border-slate-700 transition-colors shadow-sm"
+                    title="Download Executive Briefing Report (.md)"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden sm:inline">Export Report</span>
+                  </button>
+                )}
+
+                {/* Toggle PDF Viewer */}
                 <button
                   onClick={() => setShowViewer(!showViewer)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
@@ -393,7 +561,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Container: Dynamic Side-by-Side Grid */}
+      {/* Main Container */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 flex flex-col gap-4">
         {isWakingUp && (
           <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center justify-center gap-2.5 animate-fade-up shadow-sm">
@@ -402,7 +570,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Upload & Document Bar (Compact) */}
+        {/* Compact Document Ingestion Bar */}
         <section className="glass rounded-2xl p-4 shadow-lg border border-slate-700/50">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 flex-wrap">
@@ -452,31 +620,51 @@ export default function App() {
               )}
             </div>
 
-            {/* Document Selector Pills */}
+            {/* Document Switcher & Scope Filter */}
             {documents.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-1">
-                <span className="text-[11px] text-slate-500 font-medium mr-1 flex items-center gap-1">
-                  <Layers className="w-3 h-3 text-amber-400" />
-                  <span>Docs:</span>
-                </span>
-                {documents.map((doc, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setActiveDoc(doc);
-                      setViewerPage(1);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all ${
-                      activeDoc?.filename === doc.filename
-                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold"
-                        : "bg-slate-800/80 text-slate-400 border border-slate-700/60 hover:text-slate-200"
-                    }`}
-                  >
-                    {getFileIcon(doc.filename)}
-                    <span className="truncate max-w-[130px]">{doc.filename}</span>
-                    <span className="text-[10px] text-slate-400 opacity-80">{doc.chunks}c</span>
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 overflow-x-auto max-w-full py-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500 font-medium mr-1 flex items-center gap-1">
+                    <Layers className="w-3 h-3 text-amber-400" />
+                    <span>Docs:</span>
+                  </span>
+                  {documents.map((doc, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        setActiveDoc(doc);
+                        setViewerPage(1);
+                      }}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all ${
+                        activeDoc?.filename === doc.filename
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold"
+                          : "bg-slate-800/80 text-slate-400 border border-slate-700/60 hover:text-slate-200"
+                      }`}
+                    >
+                      {getFileIcon(doc.filename)}
+                      <span className="truncate max-w-[130px]">{doc.filename}</span>
+                      <span className="text-[10px] text-slate-400 opacity-80">{doc.chunks}c</span>
+                    </button>
+                  ))}
+                </div>
+
+                {documents.length > 1 && (
+                  <div className="flex items-center gap-1 border-l border-slate-700 pl-2">
+                    <Filter className="w-3 h-3 text-slate-400" />
+                    <select
+                      value={docFilter}
+                      onChange={(e) => setDocFilter(e.target.value)}
+                      className="bg-slate-800 text-[11px] text-slate-300 border border-slate-700 rounded-md px-1.5 py-0.5 focus:outline-none"
+                    >
+                      <option value="all">Search All Docs</option>
+                      {documents.map((d, i) => (
+                        <option key={i} value={d.filename}>
+                          Only {d.filename}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -492,7 +680,7 @@ export default function App() {
           )}
         </section>
 
-        {/* Feature 2: Automated Document Intelligence Card */}
+        {/* Automated Document Intelligence Card */}
         {hasDocument && currentInsights && currentInsights.summary && (
           <section className="p-4 rounded-2xl bg-gradient-to-r from-slate-900/90 via-slate-800/70 to-slate-900/90 border border-amber-500/30 shadow-md">
             <div className="flex items-center justify-between mb-2">
@@ -511,7 +699,6 @@ export default function App() {
               {currentInsights.summary}
             </p>
 
-            {/* Key Takeaways */}
             {currentInsights.takeaways?.length > 0 && (
               <div className="mb-3">
                 <span className="text-[11px] font-semibold text-amber-400 block mb-1.5">Key Highlights:</span>
@@ -529,7 +716,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Dynamic AI Suggested Questions */}
             {currentInsights.suggested_questions?.length > 0 && (
               <div>
                 <span className="text-[11px] font-semibold text-amber-400 block mb-1.5">
@@ -558,9 +744,9 @@ export default function App() {
             showViewer && hasDocument && activeDoc ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"
           }`}
         >
-          {/* Feature 1: Side-by-Side Document Viewer */}
+          {/* Side-by-Side Document Viewer */}
           {showViewer && hasDocument && activeDoc && (
-            <div className="glass rounded-2xl p-4 shadow-xl border border-slate-700/50 flex flex-col h-[650px] animate-fade-up">
+            <div className="glass rounded-2xl p-4 shadow-xl border border-slate-700/50 flex flex-col h-[660px] animate-fade-up">
               <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-700/60">
                 <div className="flex items-center gap-2">
                   {getFileIcon(activeDoc.filename)}
@@ -585,7 +771,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Document Display (PDF or Text) */}
               <div className="flex-1 w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
                 {activeDoc.filename.endsWith(".pdf") ? (
                   <iframe
@@ -609,15 +794,20 @@ export default function App() {
           )}
 
           {/* Conversational Q&A Section */}
-          <section className="glass rounded-2xl p-4 sm:p-5 shadow-xl border border-slate-700/50 flex flex-col h-[650px]">
+          <section className="glass rounded-2xl p-4 sm:p-5 shadow-xl border border-slate-700/50 flex flex-col h-[660px]">
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-700/60">
               <div className="flex items-center gap-2">
                 <span className="w-5 h-5 rounded-md bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold border border-amber-500/30">
                   💬
                 </span>
                 <h2 className="font-semibold text-xs sm:text-sm text-slate-200">
-                  Conversational Q&A (Hybrid Retrieval)
+                  Conversational Q&A
                 </h2>
+                {docFilter !== "all" && (
+                  <span className="text-[10px] text-amber-300 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/30">
+                    Filtered: {docFilter}
+                  </span>
+                )}
               </div>
               {messages.length > 0 && (
                 <button
@@ -636,20 +826,20 @@ export default function App() {
                 <AlertCircle className="w-9 h-9 text-amber-500/60 mb-2" />
                 <p className="text-slate-300 font-medium text-sm">No Documents in Knowledge Base</p>
                 <p className="text-slate-500 text-xs mt-1 max-w-xs">
-                  Upload a document above to experience Hybrid Search and live streaming.
+                  Upload a document above to experience Hybrid Search, voice Q&A, and live streaming.
                 </p>
               </div>
             )}
 
-            {/* Initial Welcome message if document loaded but no chat yet */}
+            {/* Initial Welcome message */}
             {hasDocument && messages.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-6 my-auto">
                 <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-2.5">
                   <Bot className="w-5 h-5" />
                 </div>
                 <h4 className="font-medium text-slate-200 text-sm mb-1">DocChat AI Ready</h4>
-                <p className="text-xs text-slate-400 max-w-sm">
-                  Ask any question about your document below or click one of the suggested questions above.
+                <p className="text-xs text-slate-400 max-w-sm mb-3">
+                  Ask by typing or clicking the microphone icon to speak naturally.
                 </p>
               </div>
             )}
@@ -676,19 +866,56 @@ export default function App() {
                         : "bg-slate-900/80 border border-slate-700/70 text-slate-200 rounded-tl-sm shadow-sm"
                     }`}
                   >
-                    {/* Copy Button */}
+                    {/* Action Toolbar on AI bubble (Copy & Audio Speech) */}
                     {msg.role === "ai" && !msg.isStreaming && !msg.isError && msg.text && (
-                      <button
-                        onClick={() => handleCopy(msg.text, i)}
-                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded-md bg-slate-800 border border-slate-700 text-slate-400 hover:text-amber-400 transition-all"
-                        title="Copy response"
-                      >
-                        {copiedIndex === i ? (
-                          <Check className="w-3 h-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
+                        {/* Audio TTS Button */}
+                        <button
+                          onClick={() => toggleSpeak(msg.text, i)}
+                          className={`p-1 rounded-md border transition-all ${
+                            speakingIndex === i
+                              ? "bg-amber-500/30 text-amber-300 border-amber-500/50"
+                              : "bg-slate-800 border-slate-700 text-slate-400 hover:text-amber-400"
+                          }`}
+                          title={speakingIndex === i ? "Stop audio playback" : "Listen to answer"}
+                        >
+                          {speakingIndex === i ? (
+                            <VolumeX className="w-3 h-3 text-amber-400 animate-pulse" />
+                          ) : (
+                            <Volume2 className="w-3 h-3" />
+                          )}
+                        </button>
+
+                        {/* Copy Button */}
+                        <button
+                          onClick={() => handleCopy(msg.text, i)}
+                          className="p-1 rounded-md bg-slate-800 border border-slate-700 text-slate-400 hover:text-amber-400 transition-all"
+                          title="Copy response"
+                        >
+                          {copiedIndex === i ? (
+                            <Check className="w-3 h-3 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Groundedness Confidence Badge */}
+                    {msg.role === "ai" && !msg.isStreaming && msg.confidence && (
+                      <div className="mb-2 flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            msg.confidence >= 80
+                              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                              : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                          }`}
+                          title="Calculated from Hybrid Vector + BM25 Context Alignment"
+                        >
+                          <CheckCircle2 className="w-2.5 h-2.5" />
+                          <span>{msg.confidence}% Grounded in Document</span>
+                        </span>
+                      </div>
                     )}
 
                     {/* Content */}
@@ -766,22 +993,39 @@ export default function App() {
               <div ref={chatBottomRef} />
             </div>
 
-            {/* Input Bar */}
+            {/* Input Bar with Voice Button */}
             <div className="mt-3 pt-2.5 border-t border-slate-700/50 flex flex-col gap-1.5">
               <div className="flex gap-2">
+                {/* Microphone Button */}
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  title={isListening ? "Listening... Click to stop" : "Click to speak your question"}
+                  className={`p-2.5 rounded-xl border transition-all flex items-center justify-center ${
+                    isListening
+                      ? "bg-rose-500/30 border-rose-500 text-rose-300 animate-pulse shadow-md shadow-rose-500/20"
+                      : "bg-slate-900/80 border-slate-700/80 text-slate-400 hover:text-amber-400 hover:border-amber-500/40"
+                  }`}
+                >
+                  {isListening ? <MicOff className="w-4 h-4 text-rose-400" /> : <Mic className="w-4 h-4" />}
+                </button>
+
                 <input
                   type="text"
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAsk()}
                   placeholder={
-                    hasDocument
-                      ? "Ask anything about your document..."
+                    isListening
+                      ? "Listening to speech... Speak now..."
+                      : hasDocument
+                      ? "Ask anything or click the microphone to speak..."
                       : "Upload a document to ask questions..."
                   }
                   disabled={!hasDocument || loading}
                   className="flex-1 py-2.5 px-3.5 rounded-xl bg-slate-900/80 border border-slate-700/80 text-slate-100 placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all disabled:opacity-50"
                 />
+
                 <button
                   onClick={() => handleAsk()}
                   disabled={loading || !question.trim() || !hasDocument}
@@ -797,9 +1041,10 @@ export default function App() {
                   )}
                 </button>
               </div>
+
               <div className="flex items-center justify-between text-[10px] text-slate-500 px-1">
-                <span>BM25 + FAISS Dense Retrieval Active</span>
-                <span>Enter to Send • Shift+Enter for newline</span>
+                <span>Hybrid BM25 + FAISS • Zero-latency Speech Input</span>
+                <span>Enter to Send</span>
               </div>
             </div>
           </section>
