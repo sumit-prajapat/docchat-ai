@@ -81,3 +81,77 @@ body {
 .stagger > *:nth-child(4) { animation-delay: 0.2s; }
 .stagger > *:nth-child(5) { animation-delay: 0.25s; }
 .stagger > *:nth-child(6) { animation-delay: 0.3s; }
+
+/* Markdown prose styles */
+.prose-docchat h1, .prose-docchat h2, .prose-docchat h3 {
+  color: #f8fafc;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.prose-docchat h1 { font-size: 1.25rem; }
+.prose-docchat h2 { font-size: 1.1rem; }
+.prose-docchat h3 { font-size: 1rem; }
+.prose-docchat p {
+  margin-bottom: 0.5rem;
+}
+.prose-docchat p:last-child {
+  margin-bottom: 0;
+}
+.prose-docchat ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.prose-docchat ol {
+  list-style-type: decimal;
+  padding-left: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.prose-docchat li {
+  margin-bottom: 0.25rem;
+}
+.prose-docchat code {
+  background: rgba(15, 23, 42, 0.7);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+.prose-docchat pre {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.prose-docchat pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: #e2e8f0;
+}
+.prose-docchat strong {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
+/* Typing cursor animation */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.typing-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 15px;
+  background-color: #f59e0b;
+  margin-left: 3px;
+  vertical-align: middle;
+  animation: blink 0.8s infinite;
+  border-radius: 1px;
+}
+
