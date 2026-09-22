@@ -138,6 +138,27 @@ export default function App() {
         }),
       });
 
+      if (response.status === 404) {
+        // Graceful fallback to standard /ask endpoint
+        const fallbackRes = await axios.post(`${API}/ask`, {
+          question: query,
+          history: historyPayload,
+        });
+        setMessages((prev) =>
+          prev.map((msg, idx) =>
+            idx === aiIndex
+              ? {
+                  role: "ai",
+                  text: fallbackRes.data.answer,
+                  sources: fallbackRes.data.sources || [],
+                  isStreaming: false,
+                }
+              : msg
+          )
+        );
+        return;
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `Server returned error status ${response.status}`);
