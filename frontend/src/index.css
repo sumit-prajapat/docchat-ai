@@ -3,12 +3,12 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Outfit', system-ui, sans-serif;
-  line-height: 1.6;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
-  color: #e2e8f0;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  color: #e4e4e7;
+  background-color: #09090b;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -17,27 +17,52 @@
 
 body {
   margin: 0;
+  padding: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  background: #09090b;
 }
 
-/* Subtle grid background */
-.bg-mesh {
-  background-image: 
-    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
-  background-size: 48px 48px;
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-/* Glass card */
-.glass {
-  background: rgba(30, 41, 59, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-/* Shimmer for loading */
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Studio Glass & Borders */
+.surface-card {
+  background: #111115;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.surface-elevated {
+  background: #16161b;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+/* Shimmer */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -46,19 +71,19 @@ body {
 .animate-shimmer {
   background: linear-gradient(
     90deg,
-    rgba(148, 163, 184, 0.1) 25%,
-    rgba(148, 163, 184, 0.2) 50%,
-    rgba(148, 163, 184, 0.1) 75%
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Smooth fade-in */
+/* Animations */
 @keyframes fadeUp {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -67,61 +92,60 @@ body {
 }
 
 .animate-fade-up {
-  animation: fadeUp 0.4s ease-out forwards;
+  animation: fadeUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Stagger children */
-.stagger > * {
-  animation: fadeUp 0.4s ease-out forwards;
-}
-
-.stagger > *:nth-child(1) { animation-delay: 0.05s; }
-.stagger > *:nth-child(2) { animation-delay: 0.1s; }
-.stagger > *:nth-child(3) { animation-delay: 0.15s; }
-.stagger > *:nth-child(4) { animation-delay: 0.2s; }
-.stagger > *:nth-child(5) { animation-delay: 0.25s; }
-.stagger > *:nth-child(6) { animation-delay: 0.3s; }
-
-/* Markdown prose styles */
+/* Markdown prose styles - Modern Linear/OpenAI vibe */
 .prose-docchat h1, .prose-docchat h2, .prose-docchat h3 {
-  color: #f8fafc;
+  color: #fafafa;
   font-weight: 600;
-  margin-top: 0.75rem;
-  margin-bottom: 0.35rem;
+  margin-top: 0.65rem;
+  margin-bottom: 0.3rem;
+  letter-spacing: -0.015em;
 }
-.prose-docchat h1 { font-size: 1.25rem; }
-.prose-docchat h2 { font-size: 1.1rem; }
-.prose-docchat h3 { font-size: 1rem; }
+.prose-docchat h1 { font-size: 1.15rem; }
+.prose-docchat h2 { font-size: 1.02rem; }
+.prose-docchat h3 { font-size: 0.95rem; }
+
 .prose-docchat p {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.45rem;
+  line-height: 1.62;
+  color: #d4d4d8;
 }
 .prose-docchat p:last-child {
   margin-bottom: 0;
 }
+
 .prose-docchat ul {
   list-style-type: disc;
-  padding-left: 1.25rem;
-  margin-bottom: 0.5rem;
+  padding-left: 1.15rem;
+  margin-bottom: 0.45rem;
+  color: #d4d4d8;
 }
 .prose-docchat ol {
   list-style-type: decimal;
-  padding-left: 1.25rem;
-  margin-bottom: 0.5rem;
+  padding-left: 1.15rem;
+  margin-bottom: 0.45rem;
+  color: #d4d4d8;
 }
 .prose-docchat li {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.2rem;
+  line-height: 1.55;
 }
+
 .prose-docchat code {
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(255, 255, 255, 0.07);
   padding: 0.15rem 0.35rem;
-  border-radius: 0.25rem;
+  border-radius: 0.3rem;
   font-size: 0.85em;
-  color: #fbbf24;
-  border: 1px solid rgba(251, 191, 36, 0.2);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: 'JetBrains Mono', monospace;
 }
+
 .prose-docchat pre {
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: #09090b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.5rem;
   padding: 0.75rem;
   overflow-x: auto;
@@ -132,26 +156,26 @@ body {
   background: transparent;
   padding: 0;
   border: none;
-  color: #e2e8f0;
+  color: #f4f4f5;
 }
+
 .prose-docchat strong {
-  color: #f1f5f9;
+  color: #ffffff;
   font-weight: 600;
 }
 
-/* Typing cursor animation */
+/* Blinking cursor */
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
 .typing-cursor {
   display: inline-block;
-  width: 6px;
-  height: 15px;
-  background-color: #f59e0b;
+  width: 5px;
+  height: 14px;
+  background-color: #6366f1;
   margin-left: 3px;
   vertical-align: middle;
   animation: blink 0.8s infinite;
   border-radius: 1px;
 }
-
